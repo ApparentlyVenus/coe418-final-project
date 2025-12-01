@@ -1,0 +1,172 @@
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy.orm import Session
+from sqlalchemy import or_
+from typing import List, Optional
+
+from database import get_db
+from models import Game, GameGenre, GamePlatform
+from dependencies import CurrentUser
+from services.igdb import igdb_service
+import schemas
+
+router = APIRouter(prefix="/games", tags=["Games"])
+
+@router.get("/search-igdb/")
+async def search_igdb_games(
+    search: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=50)
+):
+    """Search for games in IGDB external database."""
+    try:
+        results = await igdb_service.search_games(search, limit)
+        formatted_results = [igdb_service.format_game_data(game) for game in results]
+        return {"results": formatted_results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"IGDB API error: {str(e)}")
+
+@router.post("/import-from-igdb/{igdb_id}", response_model=schemas.GameOut, status_code=status.HTTP_201_CREATED)
+async def import_game_from_igdb(
+    igdb_id: int,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db)
+):
+    # Check if already exists
+    existing = db.query(Game).filter(Game.external_api_id == str(igdb_id)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Game already in database")
+    
+    # Fetch from IGDB
+    try:
+        igdb_data = await igdb_service.get_game_by_id(igdb_id)
+        if not igdb_data:
+            raise HTTPException(status_code=404, detail="Game not found in IGDB")
+        
+        formatted = igdb_service.format_game_data(igdb_data)
+        
+        # Create game in database
+        new_game = Game(
+            external_api_id=formatted["external_api_id"],
+            title=formatted["title"],
+            developer=formatted["developer"],
+            release_date=formatted["release_date"],
+            cover_image_url=formatted["cover_image_url"]
+        )
+        
+        db.add(new_game)
+        db.flush()
+        
+        # Add genres
+        for genre in formatted["genres"]:
+            db.add(GameGenre(game_id=new_game.game_id, genre=genre))
+        
+        # Add platforms
+        for platform in formatted["platforms"]:
+            db.add(GamePlatform(game_id=new_game.game_id, platform=platform))
+        
+        db.commit()
+        db.refresh(new_game)
+        
+        return new_game
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Error importing game: {str(e)}")
+
+@router.post("/", response_model=schemas.GameOut, status_code=status.HTTP_201_CREATED)
+async def create_game(
+    game_data: schemas.GameCreate,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db)
+):
+    if game_data.external_api_id:
+        existing = db.query(Game).filter(
+            Game.external_api_id == game_data.external_api_id
+        ).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Game with this external API ID already exists")
+    
+    new_game = Game(
+        external_api_id=game_data.external_api_id,
+        title=game_data.title,
+        developer=game_data.developer,
+        release_date=game_data.release_date,
+        cover_image_url=game_data.cover_image_url
+    )
+    
+    db.add(new_game)
+    db.flush()
+    
+    for genre in game_data.genres or []:
+        db.add(GameGenre(game_id=new_game.game_id, genre=genre))
+    
+    for platform in game_data.platforms or []:
+        db.add(GamePlatform(game_id=new_game.game_id, platform=platform))
+    
+    db.commit()
+    db.refresh(new_game)
+    
+    return new_game
+
+@router.get("/", response_model=List[schemas.GameDetailOut])
+async def get_games(
+    search: Optional[str] = None,
+    genre: Optional[str] = None,
+    platform: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    query = db.query(Game)
+    
+    if search:
+        query = query.filter(
+            or_(
+                Game.title.ilike(f"%{search}%"),
+                Game.developer.ilike(f"%{search}%")
+            )
+        )
+    
+    if genre:
+        query = query.join(GameGenre).filter(GameGenre.genre == genre)
+    
+    if platform:
+        query = query.join(GamePlatform).filter(GamePlatform.platform == platform)
+    
+    games = query.offset(skip).limit(limit).all()
+    
+    result = []
+    for game in games:
+        game_dict = {
+            "game_id": game.game_id,
+            "external_api_id": game.external_api_id,
+            "title": game.title,
+            "developer": game.developer,
+            "release_date": game.release_date,
+            "cover_image_url": game.cover_image_url,
+            "genres": [g.genre for g in game.genres],
+            "platforms": [p.platform for p in game.platforms]
+        }
+        result.append(schemas.GameDetailOut(**game_dict))
+    
+    return result
+
+@router.get("/{game_id}/", response_model=schemas.GameDetailOut)
+async def get_game(game_id: str, db: Session = Depends(get_db)):
+    game = db.query(Game).filter(Game.game_id == game_id).first()
+    
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+    
+    game_dict = {
+        "game_id": game.game_id,
+        "external_api_id": game.external_api_id,
+        "title": game.title,
+        "developer": game.developer,
+        "release_date": game.release_date,
+        "cover_image_url": game.cover_image_url,
+        "genres": [g.genre for g in game.genres],
+        "platforms": [p.platform for p in game.platforms]
+    }
+    
+    return schemas.GameDetailOut(**game_dict)
