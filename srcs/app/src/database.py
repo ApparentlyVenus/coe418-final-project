@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 from models import Base
 import os
 
-with open(os.getenv('DB_PASSWORD_FILE', '/run/secrets/db_password'), 'r') as f:
+with open(os.getenv('DB_PASSWORD_FILE'), 'r') as f:
     DB_PASSWORD = f.read().strip()
 
 DATABASE_URL = f"mysql+pymysql://gamehub_user:{DB_PASSWORD}@mariadb:3306/gamehub"

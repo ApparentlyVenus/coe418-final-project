@@ -1,11 +1,38 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import uvicorn
+from typing import Annotated 
 
 from database import get_db, create_tables
 from models import User
+from password import hash_password, verify_password, create_access_token, verify_token 
+import schemas
 
 app = FastAPI(title="GameHub API")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login/")
+
+def get_current_user(
+    db: Session = Depends(get_db), 
+    token: str = Depends(oauth2_scheme)
+):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        user_id = verify_token(token) 
+        if user_id is None:
+            raise credentials_exception
+    except Exception:
+        raise credentials_exception
+    
+    user = db.query(User).filter(User.user_id == user_id).first()
+    if user is None:
+        raise credentials_exception
+    
+    return user
 
 # Create tables on startup
 @app.on_event("startup")
@@ -18,39 +45,73 @@ def on_startup():
 async def root():
     return {"message": "GameHub API is running!"}
 
-# User registration
-@app.post("/register/")
-async def register(username: str, email: str, display_name: str = None, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter((User.username == username) | (User.email == email)).first()
+# User registration (POST /register/)
+@app.post("/register/", response_model=schemas.UserOut) 
+async def register(user_data: schemas.UserCreate, db: Session = Depends(get_db)): 
+    existing_user = db.query(User).filter(
+        (User.username == user_data.username) | (User.email == user_data.email)
+    ).first()
+    
     if existing_user:
         raise HTTPException(status_code=400, detail="Username or email already exists")
     
+    # Hash the password
+    hashed_password = hash_password(user_data.password)
+    
     new_user = User(
-        username=username,
-        email=email,
-        display_name=display_name
+        username=user_data.username,
+        email=user_data.email,
+        password_hash=hashed_password,
+        display_name=user_data.display_name
     )
     
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
     
-    return {
-        "user_id": new_user.user_id,
-        "username": new_user.username,
-        "email": new_user.email,
-        "display_name": new_user.display_name,
-        "join_date": new_user.join_date
-    }
+    return new_user
 
-# User Profile
-@app.get("/profile/{user_id}")
-async def get_profile(user_id: str, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.user_id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+# User Login (POST /login/)
+@app.post("/login/")
+async def login(user_data: schemas.UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == user_data.username).first()
     
+    if not user or not verify_password(user_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token = create_access_token(user_id=user.user_id)
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+# User Profile (GET /profile/{user_id})
+@app.get(
+        "/profile/", 
+        response_model=schemas.UserOut,
+) 
+async def get_profile(current_user: Annotated[User, Depends(get_current_user)]):
+
+    return current_user
+
+# Visiting a (public) User Profile (GET /users/{user_id})
+@app.get("/users/{user_id}", response_model=schemas.UserPublicOut)
+async def get_user_profile(
+    user_id: str,
+    db: Session = Depends(get_db)
+):
+    """Retrieves basic public profile information for any user by ID."""
+    user = db.query(User).filter(User.user_id == user_id).first()
+    
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+        
     return user
+
+if __name__ == "__main__":
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
