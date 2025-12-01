@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS FRIENDS (
     user_id_initiator VARCHAR(36) NOT NULL,
     user_id_recipient VARCHAR(36) NOT NULL,
     friendship_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-    friendship_status ENUM('pending', 'accepted', 'blocked') DEFAULT 'pending',
+    friendship_status ENUM('pending', 'accepted') DEFAULT 'pending',
     UNIQUE (user_id_initiator, user_id_recipient),
     FOREIGN KEY (user_id_initiator) REFERENCES USER(user_id) ON DELETE CASCADE,
     FOREIGN KEY (user_id_recipient) REFERENCES USER(user_id) ON DELETE CASCADE

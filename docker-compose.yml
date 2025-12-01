@@ -35,9 +35,24 @@ services:
       dockerfile: Dockerfile
     container_name: gamehub-nginx
     ports:
-      - "443:443"
+      - "4430:443"
     depends_on:
       - adminer
+    networks:
+      - gamehub-network
+    restart: unless-stopped
+
+  app:
+    build:
+      context: srcs/app
+      dockerfile: Dockerfile
+    container_name: gamehub-app
+    secrets:
+      - db_password
+    environment:
+      - DB_PASSWORD_FILE=/run/secrets/db_password
+    depends_on:
+      - mariadb
     networks:
       - gamehub-network
     restart: unless-stopped

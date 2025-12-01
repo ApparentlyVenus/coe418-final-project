@@ -11,7 +11,7 @@ clean: down
 	docker compose rm -f
 
 fclean: clean
-	docker compose prune -f --volumes
+	docker system prune -f --volumes
 
 re: clean up
 
