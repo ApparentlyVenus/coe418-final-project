@@ -50,9 +50,13 @@ services:
     secrets:
       - db_password
       - key
+      - igdb_id
+      - igdb_secret
     environment:
       - DB_PASSWORD_FILE=/run/secrets/db_password
       - KEY_FILE=/run/secrets/key
+      - IGDB_CLIENT_ID_FILE=/run/secrets/igdb_id
+      - IGDB_CLIENT_SECRET_FILE=/run/secrets/igdb_secret
     depends_on:
       - mariadb
     networks:
@@ -66,6 +70,10 @@ secrets:
     file: srcs/secrets/db_root_password.txt
   db_password:
     file: srcs/secrets/db_password.txt
+  igdb_id:
+    file: srcs/secrets/igdb_id.txt
+  igdb_secret:
+    file: srcs/secrets/igdb_secret.txt
   key:
     file: srcs/secrets/key.txt
 

@@ -18,11 +18,26 @@ class IGDBService:
     AUTH_URL = "https://id.twitch.tv/oauth2/token"
     
     def __init__(self):
-        self.client_id = os.getenv("IGDB_CLIENT_ID")
-        self.client_secret = os.getenv("IGDB_CLIENT_SECRET")
+        self.client_id = self._read_api_credentials(os.getenv("IGDB_CLIENT_ID_FILE"))
+        self.client_secret = self._read_api_credentials(os.getenv("IGDB_CLIENT_SECRET_FILE"))
+
+        if not self.client_id or not self.client_secret:
+            raise EnvironmentError("IGDB_CLIENT_ID or IGDB_CLIENT_SECRET missing") 
+
         self.access_token: Optional[str] = None
         self.token_expires_at: Optional[datetime] = None
     
+    def _read_api_credentials(self, file_path: Optional[str]) -> Optional[str]:
+        if not file_path or not os.path.exists(file_path):
+            return None
+        try:
+            with open(file_path, 'r') as f:
+                return f.read().strip()
+        except IOError as e:
+            print(f"Warning: COuld not read file {file_path}. Error: {e}")
+            return None
+    
+
     async def _get_access_token(self) -> str:
         # Check if we have a valid token
         if self.access_token and self.token_expires_at:
