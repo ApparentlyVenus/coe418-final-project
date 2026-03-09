@@ -41,16 +41,5 @@ docker-compose logs       # View service logs
 
 The project is organized with source files in the `srcs/` directory. Modify files as needed and rebuild using the commands above.
 
-## Contributing
-- Follow the existing code structure
-- Test your changes before committing
-- Ensure the project builds cleanly
-
-## License
-[Add license information if applicable]
-
-## Author
-ApparentlyVenus
-
-## Last Updated
-March 9, 2026
+## Authors
+Omar Dana (ApparentlyVenus), Kasem Smaily
